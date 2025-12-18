@@ -1,4 +1,4 @@
-const { MongoClient, ServerApiVersion } = require("mongodb");
+const { MongoClient, ServerApiVersion, ObjectId } = require("mongodb");
 const express = require("express");
 const cors = require("cors");
 const app = express();
@@ -13,7 +13,7 @@ require("dotenv").config();
 
 const admin = require("firebase-admin");
 
-const serviceAccount = require("/Style-Decor_Firebase_Admin_Key.json");
+const serviceAccount = require("./Style-Decor_Firebase_Admin_Key.json");
 
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
@@ -40,11 +40,108 @@ const client = new MongoClient(uri, {
 async function run() {
   try {
     await client.connect();
+    const db = client.db('Style-Decor_DB');
+    const usersCollection = db.collection('users');
+    const coverageCollection = db.collection('coverageAreas');
+    const servicesCollection = db.collection('services');
+    const packagesCollection = db.collection('packages');
+    const bookingsCollection = db.collection('bookings');
+    const paymentsCollection = db.collection('payments');
 
-// Auth:
-// POST   /api/auth/register
-// POST   /api/auth/login
-// POST   /api/auth/refresh-token
+// Auth API:
+app.post('/users', async(req, res)=>{
+  const user = req.body;
+  user.createdAt = new Date();
+
+  const email = user.email;
+  const existUser = await usersCollection.findOne({email});
+  if(existUser){
+    return res.send({message: 'User already Exists'});
+  }
+
+  const result = await usersCollection.insertOne(user);
+  res.send(result);
+})
+
+app.get("/users", async (req, res) => {
+  const cursor = usersCollection.find();
+  const result = await cursor.toArray();
+  res.send(result);
+});
+
+// Coverage API
+app.get('/coverageAreas', async(req, res)=>{
+  const cursor = coverageCollection.find();
+  const result = await cursor.toArray();
+  res.send(result);
+})
+
+// Services API
+app.get('/services', async(req, res)=>{
+  const cursor = servicesCollection.find();
+  const result = await cursor.toArray();
+  res.send(result);
+})
+
+// Packages API
+app.get("/popularPackages", async (req, res) => {
+  const cursor = packagesCollection.find().skip(32);
+  const result = await cursor.toArray();
+  res.send(result);
+});
+
+app.get("/packages", async (req, res) => {
+  const serviceName = req.query.service;
+  const query = serviceName ? { parent_service: serviceName } : {};
+  const result = await packagesCollection.find(query).toArray();
+  res.send(result);
+});
+
+// Booking API
+app.post('/bookings', async(req, res)=>{
+  const booking = req.body;
+  const result = await bookingsCollection.insertOne(booking);
+  res.send(result);
+})
+
+app.get('/bookings', async(req, res)=>{
+    const email = req.query.email;
+    if (!email) {
+      return res.status(400).send({ message: "Email query is required" });
+    }
+    const result = await bookingsCollection
+      .find({ userEmail: email })
+      .toArray();
+    res.send(result);
+})
+
+app.patch("/bookings/:id", async (req, res) => {
+  const id = req.params.id;
+  const { bookingDate, location, status } = req.body;
+
+  const query = { _id: new ObjectId(id) };
+
+  const booking = await bookingsCollection.findOne(query);
+  if (!booking) {
+    return res.status(404).send({ message: "Booking not found" });
+  }
+  if (booking.status === "completed") {
+    return res.status(403).send({ message: "Cannot update completed booking" });
+  }
+
+  const updateFields = {
+    bookingDate: bookingDate,
+    location: location,
+    status: status,
+  };
+  updateFields.updatedAt = new Date();
+
+  const result = await bookingsCollection.updateOne(query, {
+    $set: updateFields,
+  });
+  res.send(result);
+});
+
 
 // Users / Decorators:
 // GET    /api/decorators           # list/filter by expertise, availability
