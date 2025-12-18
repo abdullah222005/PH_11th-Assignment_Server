@@ -5,11 +5,6 @@ const app = express();
 require("dotenv").config();
 const stripe = require("stripe")(process.env.STRIPE_SECRET);
 const crypto = require("crypto");
-const admin = require("firebase-admin");
-const serviceAccount = require("./Style-Decor_Firebase_Admin_Key.json");
-admin.initializeApp({
-  credential: admin.credential.cert(serviceAccount),
-});
 
 function generateTrackingId() {
   const prefix = "SDC";
@@ -18,11 +13,8 @@ function generateTrackingId() {
   return `${prefix}-${date}-${random}`;
 }
 
-
 const admin = require("firebase-admin");
-
 const serviceAccount = require("./Style-Decor_Firebase_Admin_Key.json");
-
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -71,6 +63,10 @@ async function run() {
     const packagesCollection = db.collection("packages");
     const bookingsCollection = db.collection("bookings");
     const paymentsCollection = db.collection("payments");
+    await paymentsCollection.createIndex(
+      { transactionId: 1 },
+      { unique: true }
+    );
 
     // Auth API:
     app.post("/users", async (req, res) => {
@@ -92,6 +88,8 @@ async function run() {
       const result = await cursor.toArray();
       res.send(result);
     });
+
+
 
     // Coverage API
     app.get("/coverageAreas", async (req, res) => {
@@ -187,13 +185,16 @@ async function run() {
     app.post("/StyleDecor-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
       console.log(paymentInfo);
-      
-      const amount = parseInt(paymentInfo.price) * 100;
+
+      const amount = Math.round(Number(paymentInfo.price) * 100);
+      if (isNaN(amount)) {
+        return res.status(400).send({ message: "Invalid price amount" });
+      }
       const session = await stripe.checkout.sessions.create({
         line_items: [
           {
             price_data: {
-              currency: "BDT",
+              currency: "USD",
               unit_amount: amount,
               product_data: {
                 name: paymentInfo.packageName,
@@ -268,7 +269,7 @@ async function run() {
             transactionId: session.payment_intent,
             paymentInfo: resultPayment,
           });
-        } else { 
+        } else {
           return res.send({
             success: false,
             message: "Payment not completed",
@@ -282,32 +283,25 @@ async function run() {
     });
 
     // Payments history API
-    app.get("/payments", verifyFirebaseToken, async (req, res) => {});
+    app.get("/payments", verifyFirebaseToken, async (req, res) => {
+      const email = req.query.email;
+      const query = {};
+      if (email) {
+        query.customerEmail = email;
+        if (email !== req.decoded_email) {
+          return res.status(403).send({ message: "Forbidden Access" });
+        }
+      }
+      const cursor = paymentsCollection.find(query).sort({ paidAt: -1 });
+      const result = await cursor.toArray();
+      res.send(result);
+    });
 
-    // Users / Decorators:
-    // GET    /api/decorators           # list/filter by expertise, availability
-    // GET    /api/decorators/:id
-    // POST   /api/decorators/:id/gallery (upload)
 
-    // Packages:
-    // GET    /api/packages
-    // GET    /api/packages/:id
-    // POST   /api/packages (admin)
 
-    // Bookings:
-    // POST   /api/bookings            # create booking -> reserve slot server-side
-    // GET    /api/bookings/:id
-    // PATCH  /api/bookings/:id/status (decorator/admin)
-    // GET    /api/users/:id/bookings
 
-    // Payments:
-    // POST   /api/payments/create-intent   # (Stripe) creates paymentIntent / client secret
-    // POST   /api/payments/webhook         # Stripe webhook endpoint
-    // POST   /api/payments/bkash/initiate  # server-side call to bKash PGW
-    // POST   /api/payments/bkash/webhook
 
-    // Extras:
-    // GET /api/availability?decoratorId=...&date=YYYY-MM-DD
+
 
     await client.db("admin").command({ ping: 1 });
     console.log(
