@@ -35,6 +35,7 @@ const verifyFirebaseToken = async (req, res, next) => {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
     req.decoded_email = decoded.email;
+
   } catch (error) {
     return res.status(401).send({ message: "Un-Authorized Access" });
   }
@@ -89,7 +90,15 @@ async function run() {
       res.send(result);
     });
 
-
+    app.get("/users/role", verifyFirebaseToken, async (req, res) => {
+      const email = req.query.email;
+      
+      if (email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+      const user = await usersCollection.findOne({ email });
+      res.send({ role: user?.role });
+    });
 
     // Coverage API
     app.get("/coverageAreas", async (req, res) => {
@@ -241,6 +250,7 @@ async function run() {
           const query = { _id: new ObjectId(id) };
           const update = {
             $set: {
+              status: "paymentDone",
               paymentStatus: "Paid",
               trackingId: trackingId, // Use the generated trackingId
             },
@@ -288,6 +298,7 @@ async function run() {
       const query = {};
       if (email) {
         query.customerEmail = email;
+        
         if (email !== req.decoded_email) {
           return res.status(403).send({ message: "Forbidden Access" });
         }
