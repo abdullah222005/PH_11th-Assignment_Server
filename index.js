@@ -114,11 +114,19 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/booking/:id", async (req, res) => {
-      const paymentStatus = req.body;
-      const query = { paymentStatus: paymentStatus };
-      const result = await paymentsCollection.find(query).toArray();
-      res.send(result);
+    app.get("/bookings/:id", async (req, res) => {
+      const id = req.params.id;
+
+      const booking = await bookingsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+      if (!booking) {
+        return res.status(404).send({ message: "Booking not found" });
+      }
+      if (booking.paymentStatus !== "unPaid") {
+        return res.status(403).send({ message: "Already paid" });
+      }
+      res.send(booking);
     });
 
     app.patch("/bookings/:id", async (req, res) => {
@@ -151,9 +159,7 @@ async function run() {
     });
 
     // Payments API
-    app.get("/payments", async (req, res) => {
-      
-    });
+    app.get("/payments", async (req, res) => {});
 
     // Users / Decorators:
     // GET    /api/decorators           # list/filter by expertise, availability
