@@ -59,6 +59,7 @@ async function run() {
     await client.connect();
     const db = client.db("Style-Decor_DB");
     const usersCollection = db.collection("users");
+    const decoratorsCollection = db.collection("decorators");
     const coverageCollection = db.collection("coverageAreas");
     const servicesCollection = db.collection("services");
     const packagesCollection = db.collection("packages");
@@ -89,6 +90,18 @@ async function run() {
       const result = await cursor.toArray();
       res.send(result);
     });
+
+    app.post("/decorators", async (req, res) => {
+      const application = req.body;
+      const result = await decoratorsCollection.insertOne(application);
+      res.send(result);
+    });
+
+    app.get('/decorators', async(req, res) =>{
+      const cursor = decoratorsCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    })
 
     app.get("/users/role", verifyFirebaseToken, async (req, res) => {
       const email = req.query.email;
