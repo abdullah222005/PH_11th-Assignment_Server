@@ -35,7 +35,6 @@ const verifyFirebaseToken = async (req, res, next) => {
     const idToken = token.split(" ")[1];
     const decoded = await admin.auth().verifyIdToken(idToken);
     req.decoded_email = decoded.email;
-
   } catch (error) {
     return res.status(401).send({ message: "Un-Authorized Access" });
   }
@@ -74,7 +73,7 @@ async function run() {
     app.post("/users", async (req, res) => {
       const user = req.body;
       user.createdAt = new Date();
-
+      user.status = "active";
       const email = user.email;
       const existUser = await usersCollection.findOne({ email });
       if (existUser) {
@@ -91,26 +90,124 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/decorators", async (req, res) => {
-      const application = req.body;
-      const result = await decoratorsCollection.insertOne(application);
-      res.send(result);
-    });
-
-    app.get('/decorators', async(req, res) =>{
-      const cursor = decoratorsCollection.find();
-      const result = await cursor.toArray();
-      res.send(result);
-    })
-
     app.get("/users/role", verifyFirebaseToken, async (req, res) => {
       const email = req.query.email;
-      
+
       if (email !== req.decoded_email) {
         return res.status(403).send({ message: "Forbidden" });
       }
       const user = await usersCollection.findOne({ email });
       res.send({ role: user?.role });
+    });
+
+    // 1. Make Admin
+    app.patch("/users/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { role: "admin" } };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    // 2. Make Decorator
+    app.patch("/users/decorator/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { role: "decorator" } };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    // 3. Ban User (Toggle Status)
+    app.patch("/users/ban/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { status: "banned" } };
+      const result = await usersCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    // 4. Remove User
+    app.delete("/users/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await usersCollection.deleteOne(query);
+      res.send(result);
+    });
+
+    app.get("/decorators/role", verifyFirebaseToken, async (req, res) => {
+      const email = req.query.email;
+
+      if (email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+      const user = await decoratorsCollection.findOne({ email });
+      res.send({ role: decorator?.role });
+    });
+
+    app.post("/decorators", async (req, res) => {
+      const application = req.body;
+      application.status = "pending";
+      const result = await decoratorsCollection.insertOne(application);
+      res.send(result);
+    });
+
+    app.get("/decorators", async (req, res) => {
+      const cursor = decoratorsCollection.find();
+      const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    // 1. Make Admin
+    app.patch("/decorators/admin/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { role: "admin" } };
+      const result = await decoratorsCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    // 2. Approve or Reject Decorator
+    app.patch("/decorators/status/:id", async (req, res) => {
+      const id = req.params.id;
+      const { applicationStatus, email } = req.body;
+      console.log("--- Debugging Update ---");
+      console.log("Received ID String:", id);
+      console.log("Received Body:", req.body);
+
+      try {
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            applicationStatus: applicationStatus,
+            status: applicationStatus === "approved" ? "active" : "inactive",
+          },
+        };
+
+        const result = await decoratorsCollection.updateOne(filter, updateDoc);
+        console.log("MongoDB Result:", result); // Look for matchedCount here
+        res.send(result);
+      } catch (error) {
+        console.error("Update Error:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
+    });
+
+    // 3. Ban Decorator (Toggle Status)
+    app.patch("/decorators/ban/:id", async (req, res) => {
+      const id = req.params.id;
+      const filter = { _id: new ObjectId(id) };
+      const updateDoc = { $set: { status: "banned" } };
+      const result = await decoratorsCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    // 4. Remove User
+    app.delete("/decorators/:id", async (req, res) => {
+      const id = req.params.id;
+      const query = { _id: new ObjectId(id) };
+      const result = await decoratorsCollection.deleteOne(query);
+      res.send(result);
     });
 
     // Coverage API
@@ -311,7 +408,7 @@ async function run() {
       const query = {};
       if (email) {
         query.customerEmail = email;
-        
+
         if (email !== req.decoded_email) {
           return res.status(403).send({ message: "Forbidden Access" });
         }
@@ -320,12 +417,6 @@ async function run() {
       const result = await cursor.toArray();
       res.send(result);
     });
-
-
-
-
-
-
 
     await client.db("admin").command({ ping: 1 });
     console.log(
