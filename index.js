@@ -170,6 +170,7 @@ async function run() {
     // Make Decorator Admin
     app.patch("/decorators/admin/:id", async (req, res) => {
       const id = req.params.id;
+console.log(id);
 
       // Get decorator email first
       const decorator = await decoratorsCollection.findOne({
@@ -341,7 +342,8 @@ async function run() {
     app.get("/bookings", async (req, res) => {
       const query = {};
       const { email, status, decoratorEmail } = req.query;
-
+      console.log(decoratorEmail);
+      
       if (email) {
         query.userEmail = email;
       }
@@ -351,7 +353,6 @@ async function run() {
       if (status) {
         query.status = status;
       }
-      console.log(query);
       
       const result = await bookingsCollection
         .find(query)
@@ -359,6 +360,13 @@ async function run() {
         .toArray();
       res.send(result);
     });
+
+    app.get('/bookings/:id', async(req, res)=>{
+      const id = req.params.id;
+      const query = {_id: new ObjectId(id)};
+      const result = await bookingsCollection.find(query).toArray();
+      res.send(result);
+    })
 
     // 1. Admin assigns (Initial Request)
     app.patch("/bookings/assign/:id", async (req, res) => {
