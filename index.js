@@ -14,7 +14,10 @@ function generateTrackingId() {
 }
 
 const admin = require("firebase-admin");
-const serviceAccount = require("./Style-Decor_Firebase_Admin_Key.json");
+const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
+  "utf8"
+);
+const serviceAccount = JSON.parse(decoded);
 admin.initializeApp({
   credential: admin.credential.cert(serviceAccount),
 });
@@ -55,7 +58,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db("Style-Decor_DB");
     const usersCollection = db.collection("users");
     const decoratorsCollection = db.collection("decorators");
@@ -319,7 +322,7 @@ console.log(id);
 
     // Packages API
     app.get("/popularPackages", async (req, res) => {
-      const cursor = packagesCollection.find().skip(32);
+      const cursor = packagesCollection.find().limit(3);
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -364,7 +367,7 @@ console.log(id);
     app.get('/bookings/:id', async(req, res)=>{
       const id = req.params.id;
       const query = {_id: new ObjectId(id)};
-      const result = await bookingsCollection.find(query).toArray();
+      const result = await bookingsCollection.findOne(query)
       res.send(result);
     })
 
@@ -501,7 +504,12 @@ console.log(id);
         const query = { transactionId: transactionId };
         const paymentExist = await paymentsCollection.findOne(query);
         if (paymentExist) {
-          return res.send({ message: "already exists", transactionId });
+          return res.send({
+            success: true,
+            message: "already exists",
+            transactionId: paymentExist.transactionId,
+            trackingId: paymentExist.trackingId,
+          });
         }
 
         if (session.payment_status === "paid") {
