@@ -135,16 +135,6 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/decorators/role", verifyFirebaseToken, async (req, res) => {
-      const email = req.query.email;
-
-      if (email !== req.decoded_email) {
-        return res.status(403).send({ message: "Forbidden" });
-      }
-      const user = await decoratorsCollection.findOne({ email });
-      res.send({ role: decorator?.role });
-    });
-
     app.post("/decorators", async (req, res) => {
       const application = req.body;
       application.status = "pending";
@@ -158,56 +148,152 @@ async function run() {
       res.send(result);
     });
 
-    // 1. Make Admin
-    app.patch("/decorators/admin/:id", async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = { $set: { role: "admin" } };
-      const result = await decoratorsCollection.updateOne(filter, updateDoc);
-      res.send(result);
+
+
+    app.get("/decorators/role", verifyFirebaseToken, async (req, res) => {
+      const email = req.query.email;
+
+      if (email !== req.decoded_email) {
+        return res.status(403).send({ message: "Forbidden" });
+      }
+      const user = await decoratorsCollection.findOne({ email });
+      res.send({ role: decorator?.role });
     });
 
-    // 2. Approve or Reject Decorator
+    // Make Decorator Admin
+    app.patch("/decorators/admin/:id", async (req, res) => {
+      const id = req.params.id;
+
+      // Get decorator email first
+      const decorator = await decoratorsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!decorator) {
+        return res.status(404).send({ message: "Decorator not found" });
+      }
+
+      // Update decorator collection
+      const decoratorFilter = { _id: new ObjectId(id) };
+      const decoratorResult = await decoratorsCollection.updateOne(
+        decoratorFilter,
+        { $set: { role: "admin" } }
+      );
+
+      // Update user collection
+      const userFilter = { email: decorator.email };
+      const userResult = await usersCollection.updateOne(userFilter, {
+        $set: { role: "admin" },
+      });
+
+      res.send({
+        modifiedCount: decoratorResult.modifiedCount + userResult.modifiedCount,
+        decoratorResult,
+        userResult,
+      });
+    });
+    // Approve or Reject Decorator
     app.patch("/decorators/status/:id", async (req, res) => {
       const id = req.params.id;
       const { applicationStatus, email } = req.body;
-      console.log("--- Debugging Update ---");
-      console.log("Received ID String:", id);
-      console.log("Received Body:", req.body);
 
-      try {
-        const filter = { _id: new ObjectId(id) };
-        const updateDoc = {
-          $set: {
-            applicationStatus: applicationStatus,
-            status: applicationStatus === "approved" ? "active" : "inactive",
-          },
-        };
+      // Update decorator collection
+      const decoratorFilter = { _id: new ObjectId(id) };
+      const decoratorUpdate = {
+        $set: {
+          applicationStatus: applicationStatus,
+          role: applicationStatus === "approved" ? "decorator" : "user",
+          status: applicationStatus === "approved" ? "available" : "inactive",
+        },
+      };
 
-        const result = await decoratorsCollection.updateOne(filter, updateDoc);
-        console.log("MongoDB Result:", result); // Look for matchedCount here
-        res.send(result);
-      } catch (error) {
-        console.error("Update Error:", error);
-        res.status(500).send({ message: "Internal Server Error" });
-      }
+      const decoratorResult = await decoratorsCollection.updateOne(
+        decoratorFilter,
+        decoratorUpdate
+      );
+
+      // ALSO update the user in users collection
+      const userFilter = { email: email };
+      const userUpdate = {
+        $set: {
+          role: applicationStatus === "approved" ? "decorator" : "user",
+          status: applicationStatus === "approved" ? "active" : "inactive",
+        },
+      };
+
+      const userResult = await usersCollection.updateOne(
+        userFilter,
+        userUpdate
+      );
+
+      res.send({
+        decoratorResult,
+        userResult,
+        acknowledged: true, // Add this so frontend knows it worked
+      });
     });
 
-    // 3. Ban Decorator (Toggle Status)
+    // Ban Decorator
     app.patch("/decorators/ban/:id", async (req, res) => {
       const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = { $set: { status: "banned" } };
-      const result = await decoratorsCollection.updateOne(filter, updateDoc);
-      res.send(result);
+
+      // Get decorator email first
+      const decorator = await decoratorsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!decorator) {
+        return res.status(404).send({ message: "Decorator not found" });
+      }
+
+      // Update decorator collection
+      const decoratorFilter = { _id: new ObjectId(id) };
+      const decoratorResult = await decoratorsCollection.updateOne(
+        decoratorFilter,
+        { $set: { status: "banned" } }
+      );
+
+      // Update user collection
+      const userFilter = { email: decorator.email };
+      const userResult = await usersCollection.updateOne(userFilter, {
+        $set: { status: "banned" },
+      });
+
+      res.send({
+        modifiedCount: decoratorResult.modifiedCount + userResult.modifiedCount,
+        decoratorResult,
+        userResult,
+      });
     });
 
-    // 4. Remove User
+    // Delete Decorator
     app.delete("/decorators/:id", async (req, res) => {
       const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await decoratorsCollection.deleteOne(query);
-      res.send(result);
+
+      // Get decorator email first
+      const decorator = await decoratorsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      if (!decorator) {
+        return res.status(404).send({ message: "Decorator not found" });
+      }
+
+      // Delete from decorator collection
+      const decoratorResult = await decoratorsCollection.deleteOne({
+        _id: new ObjectId(id),
+      });
+
+      // Delete from user collection (optional - or just change role back to user)
+      const userResult = await usersCollection.deleteOne({
+        email: decorator.email,
+      });
+
+      res.send({
+        deletedCount: decoratorResult.deletedCount + userResult.deletedCount,
+        decoratorResult,
+        userResult,
+      });
     });
 
     // Coverage API
@@ -241,35 +327,41 @@ async function run() {
     // Booking API
     app.post("/bookings", async (req, res) => {
       const booking = req.body;
+      booking.createdAt = new Date();
       const result = await bookingsCollection.insertOne(booking);
       res.send(result);
     });
 
     app.get("/bookings", async (req, res) => {
-      const email = req.query.email;
-      if (!email) {
-        return res.status(400).send({ message: "Email query is required" });
+      const query = {};
+      const { email, status } = req.query;
+      if (email) {
+        query.userEmail = email;
       }
-      const result = await bookingsCollection
-        .find({ userEmail: email })
-        .toArray();
+      if (status) {
+        query.status = status;
+      }
+      const options = { sort: { bookingDate: 1 } };
+
+      const cursor = bookingsCollection.find(query, options);
+      const result = await cursor.toArray();
       res.send(result);
     });
 
-    app.get("/bookings/:id", async (req, res) => {
-      const id = req.params.id;
 
-      const booking = await bookingsCollection.findOne({
-        _id: new ObjectId(id),
-      });
-      if (!booking) {
-        return res.status(404).send({ message: "Booking not found" });
-      }
-      if (booking.paymentStatus !== "unPaid") {
-        return res.status(403).send({ message: "Already paid" });
-      }
-      res.send(booking);
-    });
+ app.get("/bookings", async (req, res) => {
+   const email = req.query.email;
+   if (!email) {
+     return res.status(400).send({ message: "Email query is required" });
+   }
+
+   const result = await bookingsCollection
+     .find({ userEmail: email })
+     .sort({ createdAt: -1 })
+     .toArray();
+
+   res.send(result);
+ });
 
     app.patch("/bookings/:id", async (req, res) => {
       const id = req.params.id;
@@ -300,12 +392,40 @@ async function run() {
       res.send(result);
     });
 
+    // Assign a decorator to a booking
+    app.patch("/bookings/assign/:id", async (req, res) => {
+      const id = req.params.id;
+      const { decoratorEmail, decoratorName, decoratorPhoto } = req.body;
+      const filter = { _id: new ObjectId(id) };
+
+      const updateDoc = {
+        $set: {
+          decoratorEmail,
+          decoratorName,
+          decoratorPhoto,
+          status: "decorator-assigned",
+          assignedAt: new Date(),
+        },
+      };
+
+      const result = await bookingsCollection.updateOne(filter, updateDoc);
+      res.send(result);
+    });
+
+    app.get("/decorators/approved", async (req, res) => {
+      const query = { applicationStatus: "approved" };
+      const result = await decoratorsCollection.find(query).toArray();
+      res.send(result);
+    });
+
     // Payments API
     app.post("/StyleDecor-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
       console.log(paymentInfo);
 
       const amount = Math.round(Number(paymentInfo.price) * 100);
+      console.log(amount);
+
       if (isNaN(amount)) {
         return res.status(400).send({ message: "Invalid price amount" });
       }
