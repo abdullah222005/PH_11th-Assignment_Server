@@ -143,7 +143,12 @@ async function run() {
     });
 
     app.get("/decorators", async (req, res) => {
-      const cursor = decoratorsCollection.find();
+      const query = {}
+      const status = req.query.status;
+      if(status){
+        query.status = status;
+      }
+      const cursor = decoratorsCollection.find(query);
       const result = await cursor.toArray();
       res.send(result);
     });
@@ -214,7 +219,6 @@ async function run() {
         decoratorUpdate
       );
 
-      // ALSO update the user in users collection
       const userFilter = { email: email };
       const userUpdate = {
         $set: {
@@ -347,10 +351,54 @@ async function run() {
       if (status) {
         query.status = status;
       }
+      console.log(query);
+      
       const result = await bookingsCollection
         .find(query)
         .sort({ assignedAt: -1 })
         .toArray();
+      res.send(result);
+    });
+
+    // 1. Admin assigns (Initial Request)
+    app.patch("/bookings/assign/:id", async (req, res) => {
+      const id = req.params.id;
+      const { decoratorEmail, status, assignRequestAt } = req.body;
+      const result = await bookingsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        { $set: { decoratorEmail, status, assignedAt: assignRequestAt } }
+      );
+      res.send(result);
+    });
+
+    // 2. Decorator Accepts (Stamping data)
+    app.patch("/bookings/:id/accept", async (req, res) => {
+      const id = req.params.id;
+      const info = req.body; // Full decorator data from frontend
+      const result = await bookingsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: {
+            status: info.status,
+            decoratorName: info.decoratorName,
+            decoratorPhoto: info.decoratorPhoto,
+            acceptedAt: info.acceptedAt,
+          },
+        }
+      );
+      res.send(result);
+    });
+
+    // 3. Decorator Rejects (Cleanup)
+    app.patch("/bookings/:id/reject", async (req, res) => {
+      const id = req.params.id;
+      const result = await bookingsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        {
+          $set: { status: "paymentDone" }, // Reset to original state
+          $unset: { decoratorEmail: "" }, // Remove the link to this decorator
+        }
+      );
       res.send(result);
     });
 
@@ -374,49 +422,23 @@ async function run() {
       }
     });
 
-    // Assign a decorator to a booking
-    app.patch("/bookings/assign/:id", async (req, res) => {
-      const id = req.params.id;
-      const { decoratorEmail, decoratorName, decoratorPhoto } = req.body;
-      const filter = { _id: new ObjectId(id) };
+    // Update decorator availability status
+    app.patch("/decorators/status-update-by-email/:email", async (req, res) => {
+      const email = req.params.email;
+      const { status } = req.body;
 
+      const filter = { email: email };
       const updateDoc = {
-        $set: {
-          decoratorEmail,
-          decoratorName,
-          decoratorPhoto,
-          status: "decorator-assigned",
-          assignedAt: new Date(),
-        },
+        $set: { status: status },
       };
 
-      const result = await bookingsCollection.updateOne(filter, updateDoc);
-      res.send(result);
+      try {
+        const result = await decoratorsCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      } catch (error) {
+        res.status(500).send({ message: "Internal Server Error" });
+      }
     });
-
-    app.get("/decorators/approved", async (req, res) => {
-      const query = { applicationStatus: "approved" };
-      const result = await decoratorsCollection.find(query).toArray();
-      res.send(result);
-    });
-
-    // Update decorator availability status
-app.patch("/decorators/status/:email", async (req, res) => {
-  const email = req.params.email;
-  const { status } = req.body;
-  
-  const filter = { email: email };
-  const updateDoc = {
-    $set: { status: status },
-  };
-
-  try {
-    const result = await decoratorsCollection.updateOne(filter, updateDoc);
-    res.send(result);
-  } catch (error) {
-    res.status(500).send({ message: "Error updating decorator status" });
-  }
-});
 
     // Payments API
     app.post("/StyleDecor-checkout-session", async (req, res) => {
@@ -538,10 +560,10 @@ app.patch("/decorators/status/:email", async (req, res) => {
       res.send(result);
     });
 
-    await client.db("admin").command({ ping: 1 });
-    console.log(
-      "Pinged your deployment. You successfully connected to MongoDB!"
-    );
+    // await client.db("admin").command({ ping: 1 });
+    // console.log(
+    //   "Pinged your deployment. You successfully connected to MongoDB!"
+    // );
   } finally {
     // await client.close();
   }
