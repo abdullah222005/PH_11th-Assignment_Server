@@ -148,16 +148,18 @@ async function run() {
       res.send(result);
     });
 
-
-
     app.get("/decorators/role", verifyFirebaseToken, async (req, res) => {
       const email = req.query.email;
-
       if (email !== req.decoded_email) {
         return res.status(403).send({ message: "Forbidden" });
       }
-      const user = await decoratorsCollection.findOne({ email });
-      res.send({ role: decorator?.role });
+
+      const decorator = await decoratorsCollection.findOne({ email });
+
+      if (!decorator) {
+        return res.status(404).send({ message: "Decorator not found" });
+      }
+      res.send({ role: decorator.role });
     });
 
     // Make Decorator Admin
@@ -334,62 +336,42 @@ async function run() {
 
     app.get("/bookings", async (req, res) => {
       const query = {};
-      const { email, status } = req.query;
+      const { email, status, decoratorEmail } = req.query;
+
       if (email) {
         query.userEmail = email;
+      }
+      if (decoratorEmail) {
+        query.decoratorEmail = decoratorEmail;
       }
       if (status) {
         query.status = status;
       }
-      const options = { sort: { bookingDate: 1 } };
-
-      const cursor = bookingsCollection.find(query, options);
-      const result = await cursor.toArray();
+      const result = await bookingsCollection
+        .find(query)
+        .sort({ assignedAt: -1 })
+        .toArray();
       res.send(result);
     });
 
-
- app.get("/bookings", async (req, res) => {
-   const email = req.query.email;
-   if (!email) {
-     return res.status(400).send({ message: "Email query is required" });
-   }
-
-   const result = await bookingsCollection
-     .find({ userEmail: email })
-     .sort({ createdAt: -1 })
-     .toArray();
-
-   res.send(result);
- });
-
-    app.patch("/bookings/:id", async (req, res) => {
+    // Update booking workflow status
+    app.patch("/bookings/:id/status", async (req, res) => {
       const id = req.params.id;
-      const { bookingDate, location, status } = req.body;
-
+      const { status } = req.body;
       const query = { _id: new ObjectId(id) };
-
-      const booking = await bookingsCollection.findOne(query);
-      if (!booking) {
-        return res.status(404).send({ message: "Booking not found" });
-      }
-      if (booking.status === "completed") {
-        return res
-          .status(403)
-          .send({ message: "Cannot update completed booking" });
-      }
-
-      const updateFields = {
-        bookingDate: bookingDate,
-        location: location,
-        status: status,
+      const updateDoc = {
+        $set: {
+          status: status,
+          updatedAt: new Date(),
+        },
       };
-      updateFields.updatedAt = new Date();
-
-      const result = await bookingsCollection.updateOne(query, {
-        $set: updateFields,
-      });
-      res.send(result);
+      try {
+        const result = await bookingsCollection.updateOne(query, updateDoc);
+        res.send(result);
+      } catch (error) {
+        console.error("Error updating status:", error);
+        res.status(500).send({ message: "Internal Server Error" });
+      }
     });
 
     // Assign a decorator to a booking
@@ -417,6 +399,24 @@ async function run() {
       const result = await decoratorsCollection.find(query).toArray();
       res.send(result);
     });
+
+    // Update decorator availability status
+app.patch("/decorators/status/:email", async (req, res) => {
+  const email = req.params.email;
+  const { status } = req.body;
+  
+  const filter = { email: email };
+  const updateDoc = {
+    $set: { status: status },
+  };
+
+  try {
+    const result = await decoratorsCollection.updateOne(filter, updateDoc);
+    res.send(result);
+  } catch (error) {
+    res.status(500).send({ message: "Error updating decorator status" });
+  }
+});
 
     // Payments API
     app.post("/StyleDecor-checkout-session", async (req, res) => {
