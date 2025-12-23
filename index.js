@@ -67,10 +67,10 @@ async function run() {
     const packagesCollection = db.collection("packages");
     const bookingsCollection = db.collection("bookings");
     const paymentsCollection = db.collection("payments");
-    await paymentsCollection.createIndex(
-      { transactionId: 1 },
-      { unique: true }
-    );
+    // await paymentsCollection.createIndex(
+    //   { transactionId: 1 },
+    //   { unique: true }
+    // );
 
     // Auth API:
     app.post("/users", async (req, res) => {
@@ -146,9 +146,9 @@ async function run() {
     });
 
     app.get("/decorators", async (req, res) => {
-      const query = {}
+      const query = {};
       const status = req.query.status;
-      if(status){
+      if (status) {
         query.status = status;
       }
       const cursor = decoratorsCollection.find(query);
@@ -173,7 +173,7 @@ async function run() {
     // Make Decorator Admin
     app.patch("/decorators/admin/:id", async (req, res) => {
       const id = req.params.id;
-console.log(id);
+      console.log(id);
 
       // Get decorator email first
       const decorator = await decoratorsCollection.findOne({
@@ -320,17 +320,24 @@ console.log(id);
       res.send(result);
     });
 
-    // Packages API
-    app.get("/popularPackages", async (req, res) => {
-      const cursor = packagesCollection.find().limit(3);
-      const result = await cursor.toArray();
+    app.post('/services', async(req, res)=>{
+      const service = req.body;
+      service.createdAt = new Date();
+      const result = await servicesCollection.insertOne(service);
       res.send(result);
-    });
+    })
 
+    // Packages API
     app.get("/packages", async (req, res) => {
       const serviceName = req.query.service;
       const query = serviceName ? { parent_service: serviceName } : {};
       const result = await packagesCollection.find(query).toArray();
+      res.send(result);
+    });
+
+    app.get("/popular-packages", async (req, res) => {
+      const cursor = packagesCollection.find().skip(32);
+      const result = await cursor.toArray();
       res.send(result);
     });
 
@@ -346,7 +353,7 @@ console.log(id);
       const query = {};
       const { email, status, decoratorEmail } = req.query;
       console.log(decoratorEmail);
-      
+
       if (email) {
         query.userEmail = email;
       }
@@ -356,7 +363,7 @@ console.log(id);
       if (status) {
         query.status = status;
       }
-      
+
       const result = await bookingsCollection
         .find(query)
         .sort({ assignedAt: -1 })
@@ -364,12 +371,12 @@ console.log(id);
       res.send(result);
     });
 
-    app.get('/bookings/:id', async(req, res)=>{
+    app.get("/bookings/:id", async (req, res) => {
       const id = req.params.id;
-      const query = {_id: new ObjectId(id)};
-      const result = await bookingsCollection.findOne(query)
+      const query = { _id: new ObjectId(id) };
+      const result = await bookingsCollection.findOne(query);
       res.send(result);
-    })
+    });
 
     // 1. Admin assigns (Initial Request)
     app.patch("/bookings/assign/:id", async (req, res) => {
@@ -576,6 +583,71 @@ console.log(id);
       res.send(result);
     });
 
+    // dashboard related advance api
+    app.get("/admin-stats", async (req, res) => {
+      try {
+        // 1. Get simple counts
+        const users = await usersCollection.estimatedDocumentCount();
+        const packages = await packagesCollection.estimatedDocumentCount();
+        const services = await servicesCollection.estimatedDocumentCount();
+        // 2. User Distribution (Pie Chart)
+        const userDistribution = await usersCollection
+          .aggregate([
+            { $group: { _id: "$role", count: { $sum: 1 } } },
+            { $project: { name: "$_id", value: "$count", _id: 0 } },
+          ])
+          .toArray();
+        // 3. Revenue History (Area Chart)
+        const revenueHistory = await paymentsCollection
+          .aggregate([
+            {
+              $group: {
+                _id: {
+                  $dateToString: {
+                    format: "%Y-%m-%d",
+                    date: { $toDate: "$paidAt" },
+                  },
+                },
+                total: { $sum: "$amount" },
+              },
+            },
+            { $sort: { _id: 1 } },
+            { $project: { date: "$_id", amount: "$total", _id: 0 } },
+          ])
+          .toArray();
+        // 4. Service Demand (Histogram)
+        const serviceDemand = await bookingsCollection
+          .aggregate([
+            {
+              // If your DB field is packageName, change this to "$packageName"
+              $group: { _id: "$packageName", count: { $sum: 1 } },
+            },
+            { $project: { name: "$_id", bookings: "$count", _id: 0 } },
+          ])
+          .toArray();
+        // Add this to calculate total revenue for the "Stat" card
+        const totalRevenue = revenueHistory.reduce(
+          (sum, item) => sum + item.amount,
+          0
+        );
+        // 5. Coverage Areas
+        const coverageAreas = await coverageCollection.find().toArray();
+
+        res.send({
+          users,
+          packages,
+          services,
+          userDistribution,
+          revenueHistory,
+          serviceDemand,
+          coverageAreas,
+          totalRevenue,
+        });
+      } catch (error) {
+        res.status(500).send({ message: "Error fetching stats" });
+      }
+    });
+
     // await client.db("admin").command({ ping: 1 });
     // console.log(
     //   "Pinged your deployment. You successfully connected to MongoDB!"
@@ -593,3 +665,5 @@ app.get("/", (req, res) => {
 app.listen(port, () => {
   console.log(`Server is running on port: ${port}`);
 });
+
+module.exports = app;
