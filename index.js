@@ -14,6 +14,7 @@ function generateTrackingId() {
 }
 
 const admin = require("firebase-admin");
+const e = require("express");
 const decoded = Buffer.from(process.env.FB_SERVICE_KEY, "base64").toString(
   "utf8"
 );
@@ -29,20 +30,27 @@ app.use(express.json());
 app.use(cors());
 
 const verifyFirebaseToken = async (req, res, next) => {
-  const token = req.headers.authorization;
+  const authHeader = req.headers.authorization;
 
-  if (!token) {
-    return res.status(401).send({ message: "Un-Authorized Access" });
+  if (!authHeader || !authHeader.startsWith("Bearer ")) {
+    console.log("No token provided in header");
+    return res.status(401).send({ message: "Un-Authorized Access: No Token" });
   }
+
   try {
-    const idToken = token.split(" ")[1];
-    const decoded = await admin.auth().verifyIdToken(idToken);
-    req.decoded_email = decoded.email;
-  } catch (error) {
-    return res.status(401).send({ message: "Un-Authorized Access" });
-  }
+    const idToken = authHeader.split(" ")[1];
+    const decodedToken = await admin.auth().verifyIdToken(idToken);
 
-  next();
+    // Attach the email to the request
+    req.decoded_email = decodedToken.email;
+
+    next();
+  } catch (error) {
+    console.error("Firebase Token Verification Error:", error.message);
+    return res
+      .status(401)
+      .send({ message: "Un-Authorized Access: Invalid Token" });
+  }
 };
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gh1jtid.mongodb.net/?appName=Cluster0`;
@@ -63,6 +71,7 @@ async function run() {
     const usersCollection = db.collection("users");
     const decoratorsCollection = db.collection("decorators");
     const coverageCollection = db.collection("coverageAreas");
+    const reviewsCollection = db.collection("reviews");
     const servicesCollection = db.collection("services");
     const packagesCollection = db.collection("packages");
     const bookingsCollection = db.collection("bookings");
@@ -153,6 +162,19 @@ async function run() {
       }
       const cursor = decoratorsCollection.find(query);
       const result = await cursor.toArray();
+      res.send(result);
+    });
+
+    app.get("/decorators/top", async (req, res) => {
+      const result = await decoratorsCollection
+        .find({
+          applicationStatus: "approved",
+        })
+        .sort({ experience: -1 })
+        .limit(3)
+        .toArray();
+      console.log(result);
+
       res.send(result);
     });
 
@@ -313,6 +335,12 @@ async function run() {
       res.send(result);
     });
 
+    // Users Review
+    app.get("/usersReviews", async (req, res) => {
+      const result = await reviewsCollection.find().toArray();
+      res.send(result);
+    });
+
     // Services API
     app.get("/services", async (req, res) => {
       const cursor = servicesCollection.find();
@@ -320,12 +348,12 @@ async function run() {
       res.send(result);
     });
 
-    app.post('/services', async(req, res)=>{
+    app.post("/services", async (req, res) => {
       const service = req.body;
       service.createdAt = new Date();
       const result = await servicesCollection.insertOne(service);
       res.send(result);
-    })
+    });
 
     // Packages API
     app.get("/packages", async (req, res) => {
@@ -377,6 +405,22 @@ async function run() {
       const result = await bookingsCollection.findOne(query);
       res.send(result);
     });
+
+app.patch("/bookings/:id", async (req, res) => {
+  const id = req.params.id;
+  const updatedInfo = req.body;
+  const updateDoc = {
+    $set: {
+      ...updatedInfo,
+      updatedAt: new Date(),
+    },
+  };
+    const result = await bookingsCollection.updateOne(
+      { _id: new ObjectId(id) },
+      updateDoc
+    );
+    res.send(result);
+});
 
     // 1. Admin assigns (Initial Request)
     app.patch("/bookings/assign/:id", async (req, res) => {
@@ -449,13 +493,8 @@ async function run() {
       const updateDoc = {
         $set: { status: status },
       };
-
-      try {
         const result = await decoratorsCollection.updateOne(filter, updateDoc);
         res.send(result);
-      } catch (error) {
-        res.status(500).send({ message: "Internal Server Error" });
-      }
     });
 
     // Payments API
@@ -583,21 +622,10 @@ async function run() {
       res.send(result);
     });
 
-    // dashboard related advance api
-    app.get("/admin-stats", async (req, res) => {
+    // Revenue monitor API
+    app.get("/revenue-stats", async (req, res) => {
       try {
-        // 1. Get simple counts
-        const users = await usersCollection.estimatedDocumentCount();
-        const packages = await packagesCollection.estimatedDocumentCount();
-        const services = await servicesCollection.estimatedDocumentCount();
-        // 2. User Distribution (Pie Chart)
-        const userDistribution = await usersCollection
-          .aggregate([
-            { $group: { _id: "$role", count: { $sum: 1 } } },
-            { $project: { name: "$_id", value: "$count", _id: 0 } },
-          ])
-          .toArray();
-        // 3. Revenue History (Area Chart)
+        // 1. Revenue History (Area Chart)
         const revenueHistory = await paymentsCollection
           .aggregate([
             {
@@ -615,7 +643,7 @@ async function run() {
             { $project: { date: "$_id", amount: "$total", _id: 0 } },
           ])
           .toArray();
-        // 4. Service Demand (Histogram)
+        // 2. Service Demand (Histogram)
         const serviceDemand = await bookingsCollection
           .aggregate([
             {
@@ -630,21 +658,105 @@ async function run() {
           (sum, item) => sum + item.amount,
           0
         );
-        // 5. Coverage Areas
-        const coverageAreas = await coverageCollection.find().toArray();
-
         res.send({
-          users,
-          packages,
-          services,
-          userDistribution,
           revenueHistory,
           serviceDemand,
-          coverageAreas,
           totalRevenue,
         });
       } catch (error) {
         res.status(500).send({ message: "Error fetching stats" });
+      }
+    });
+
+    // A unified stats endpoint that detects who is asking
+    app.get("/dashboard-stats", verifyFirebaseToken, async (req, res) => {
+      const email = req.decoded_email;
+      try {
+        // 1. Check Users collection first
+        let user = await usersCollection.findOne({ email });
+        let role = user?.role;
+
+        // 2. If not found in users, check decorators collection
+        if (!role) {
+          const decorator = await decoratorsCollection.findOne({ email });
+          role = decorator?.role;
+        }
+        console.log(`Final identified role for ${email}:`, role);
+
+        // Admin
+        if (role === "admin") {
+          // 1. Get simple counts
+          const activeUsersCount = await usersCollection.countDocuments({
+            role: "user",
+            status: "active",
+          });
+          // Only count admins (usually admins are always active, but you can add status here too)
+          const adminsCount = await usersCollection.countDocuments({
+            role: "admin",
+          });
+          // Only count decorators who are 'approved'
+          const approvedDecoratorsCount =
+            await decoratorsCollection.countDocuments({
+              applicationStatus: "approved",
+            });
+          const packages = await packagesCollection.estimatedDocumentCount();
+          const services = await servicesCollection.estimatedDocumentCount();
+          // 2. User Distribution (Pie Chart)
+          const userDistribution = [
+            { name: "User", value: activeUsersCount },
+            { name: "Admin", value: adminsCount },
+            { name: "Decorator", value: approvedDecoratorsCount },
+          ];
+          // 3. Coverage Areas
+          const coverageAreas = await coverageCollection.find().toArray();
+
+          res.send({
+            users: activeUsersCount + adminsCount + approvedDecoratorsCount,
+            decorators: approvedDecoratorsCount,
+            userDistribution,
+            packages,
+            services,
+            coverageAreas,
+          });
+        }
+        // Decorator
+        else if (role === "decorator") {
+          // Now that role is confirmed, we query bookings
+          const query = { decoratorEmail: email };
+
+          const myJobs = await bookingsCollection.countDocuments(query);
+          const completed = await bookingsCollection.countDocuments({
+            ...query,
+            status: "completed",
+          });
+          const pending = await bookingsCollection.countDocuments({
+            ...query,
+            status: "decorator-assigned",
+          });
+
+          res.send({ role: "decorator", myJobs, completed, pending });
+        }
+        // Standard User
+        else {
+          const myBookings = await bookingsCollection.countDocuments({
+            userEmail: email,
+          });
+          const totalSpent = await paymentsCollection
+            .aggregate([
+              { $match: { customerEmail: email } },
+              { $group: { _id: null, total: { $sum: "$amount" } } },
+            ])
+            .toArray();
+          res.send({
+            role,
+            myBookings,
+            spent: totalSpent[0]?.total || 0,
+            status: user?.status,
+          });
+        }
+      } catch (error) {
+        console.error(error);
+        res.status(500).send("Stats error");
       }
     });
 
