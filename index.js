@@ -147,39 +147,59 @@ async function run() {
     });
 
     // 1. Make Admin
-    app.patch("/users/admin/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = { $set: { role: "admin" } };
-      const result = await usersCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/admin/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: { role: "admin" } };
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      }
+    );
 
     // 2. Make Decorator
-    app.patch("/users/decorator/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = { $set: { role: "decorator" } };
-      const result = await usersCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/decorator/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: { role: "decorator" } };
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      }
+    );
 
     // 3. Ban User (Toggle Status)
-    app.patch("/users/ban/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const filter = { _id: new ObjectId(id) };
-      const updateDoc = { $set: { status: "banned" } };
-      const result = await usersCollection.updateOne(filter, updateDoc);
-      res.send(result);
-    });
+    app.patch(
+      "/users/ban/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const filter = { _id: new ObjectId(id) };
+        const updateDoc = { $set: { status: "banned" } };
+        const result = await usersCollection.updateOne(filter, updateDoc);
+        res.send(result);
+      }
+    );
 
     // 4. Remove User
-    app.delete("/users/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const query = { _id: new ObjectId(id) };
-      const result = await usersCollection.deleteOne(query);
-      res.send(result);
-    });
+    app.delete(
+      "/users/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const query = { _id: new ObjectId(id) };
+        const result = await usersCollection.deleteOne(query);
+        res.send(result);
+      }
+    );
 
     app.post("/decorators", async (req, res) => {
       const application = req.body;
@@ -227,140 +247,162 @@ async function run() {
     });
 
     // Make Decorator Admin
-    app.patch("/decorators/admin/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      // console.log(id);
+    app.patch(
+      "/decorators/admin/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        // console.log(id);
 
-      // Get decorator email first
-      const decorator = await decoratorsCollection.findOne({
-        _id: new ObjectId(id),
-      });
+        // Get decorator email first
+        const decorator = await decoratorsCollection.findOne({
+          _id: new ObjectId(id),
+        });
 
-      if (!decorator) {
-        return res.status(404).send({ message: "Decorator not found" });
+        if (!decorator) {
+          return res.status(404).send({ message: "Decorator not found" });
+        }
+
+        // Update decorator collection
+        const decoratorFilter = { _id: new ObjectId(id) };
+        const decoratorResult = await decoratorsCollection.updateOne(
+          decoratorFilter,
+          { $set: { role: "admin" } }
+        );
+
+        // Update user collection
+        const userFilter = { email: decorator.email };
+        const userResult = await usersCollection.updateOne(userFilter, {
+          $set: { role: "admin" },
+        });
+
+        res.send({
+          modifiedCount:
+            decoratorResult.modifiedCount + userResult.modifiedCount,
+          decoratorResult,
+          userResult,
+        });
       }
-
-      // Update decorator collection
-      const decoratorFilter = { _id: new ObjectId(id) };
-      const decoratorResult = await decoratorsCollection.updateOne(
-        decoratorFilter,
-        { $set: { role: "admin" } }
-      );
-
-      // Update user collection
-      const userFilter = { email: decorator.email };
-      const userResult = await usersCollection.updateOne(userFilter, {
-        $set: { role: "admin" },
-      });
-
-      res.send({
-        modifiedCount: decoratorResult.modifiedCount + userResult.modifiedCount,
-        decoratorResult,
-        userResult,
-      });
-    });
+    );
     // Approve or Reject Decorator
-    app.patch("/decorators/status/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
-      const { applicationStatus, email } = req.body;
+    app.patch(
+      "/decorators/status/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const { applicationStatus, email } = req.body;
 
-      // Update decorator collection
-      const decoratorFilter = { _id: new ObjectId(id) };
-      const decoratorUpdate = {
-        $set: {
-          applicationStatus: applicationStatus,
-          role: applicationStatus === "approved" ? "decorator" : "user",
-          status: applicationStatus === "approved" ? "available" : "inactive",
-        },
-      };
+        // Update decorator collection
+        const decoratorFilter = { _id: new ObjectId(id) };
+        const decoratorUpdate = {
+          $set: {
+            applicationStatus: applicationStatus,
+            role: applicationStatus === "approved" ? "decorator" : "user",
+            status: applicationStatus === "approved" ? "available" : "inactive",
+          },
+        };
 
-      const decoratorResult = await decoratorsCollection.updateOne(
-        decoratorFilter,
-        decoratorUpdate
-      );
+        const decoratorResult = await decoratorsCollection.updateOne(
+          decoratorFilter,
+          decoratorUpdate
+        );
 
-      const userFilter = { email: email };
-      const userUpdate = {
-        $set: {
-          role: applicationStatus === "approved" ? "decorator" : "user",
-          status: applicationStatus === "approved" ? "active" : "inactive",
-        },
-      };
+        const userFilter = { email: email };
+        const userUpdate = {
+          $set: {
+            role: applicationStatus === "approved" ? "decorator" : "user",
+            status: applicationStatus === "approved" ? "active" : "inactive",
+          },
+        };
 
-      const userResult = await usersCollection.updateOne(
-        userFilter,
-        userUpdate
-      );
+        const userResult = await usersCollection.updateOne(
+          userFilter,
+          userUpdate
+        );
 
-      res.send({
-        decoratorResult,
-        userResult,
-        acknowledged: true, // Add this so frontend knows it worked
-      });
-    });
+        res.send({
+          decoratorResult,
+          userResult,
+          acknowledged: true, // Add this so frontend knows it worked
+        });
+      }
+    );
 
     // Ban Decorator
-    app.patch("/decorators/ban/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    app.patch(
+      "/decorators/ban/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
 
-      // Get decorator email first
-      const decorator = await decoratorsCollection.findOne({
-        _id: new ObjectId(id),
-      });
+        // Get decorator email first
+        const decorator = await decoratorsCollection.findOne({
+          _id: new ObjectId(id),
+        });
 
-      if (!decorator) {
-        return res.status(404).send({ message: "Decorator not found" });
+        if (!decorator) {
+          return res.status(404).send({ message: "Decorator not found" });
+        }
+
+        // Update decorator collection
+        const decoratorFilter = { _id: new ObjectId(id) };
+        const decoratorResult = await decoratorsCollection.updateOne(
+          decoratorFilter,
+          { $set: { status: "banned" } }
+        );
+
+        // Update user collection
+        const userFilter = { email: decorator.email };
+        const userResult = await usersCollection.updateOne(userFilter, {
+          $set: { status: "banned" },
+        });
+
+        res.send({
+          modifiedCount:
+            decoratorResult.modifiedCount + userResult.modifiedCount,
+          decoratorResult,
+          userResult,
+        });
       }
-
-      // Update decorator collection
-      const decoratorFilter = { _id: new ObjectId(id) };
-      const decoratorResult = await decoratorsCollection.updateOne(
-        decoratorFilter,
-        { $set: { status: "banned" } }
-      );
-
-      // Update user collection
-      const userFilter = { email: decorator.email };
-      const userResult = await usersCollection.updateOne(userFilter, {
-        $set: { status: "banned" },
-      });
-
-      res.send({
-        modifiedCount: decoratorResult.modifiedCount + userResult.modifiedCount,
-        decoratorResult,
-        userResult,
-      });
-    });
+    );
 
     // Delete Decorator
-    app.delete("/decorators/:id", verifyAdmin, async (req, res) => {
-      const id = req.params.id;
+    app.delete(
+      "/decorators/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
 
-      // Get decorator email first
-      const decorator = await decoratorsCollection.findOne({
-        _id: new ObjectId(id),
-      });
+        // Get decorator email first
+        const decorator = await decoratorsCollection.findOne({
+          _id: new ObjectId(id),
+        });
 
-      if (!decorator) {
-        return res.status(404).send({ message: "Decorator not found" });
+        if (!decorator) {
+          return res.status(404).send({ message: "Decorator not found" });
+        }
+
+        // Delete from decorator collection
+        const decoratorResult = await decoratorsCollection.deleteOne({
+          _id: new ObjectId(id),
+        });
+
+        // Delete from user collection (optional - or just change role back to user)
+        const userResult = await usersCollection.deleteOne({
+          email: decorator.email,
+        });
+
+        res.send({
+          deletedCount: decoratorResult.deletedCount + userResult.deletedCount,
+          decoratorResult,
+          userResult,
+        });
       }
-
-      // Delete from decorator collection
-      const decoratorResult = await decoratorsCollection.deleteOne({
-        _id: new ObjectId(id),
-      });
-
-      // Delete from user collection (optional - or just change role back to user)
-      const userResult = await usersCollection.deleteOne({
-        email: decorator.email,
-      });
-
-      res.send({
-        deletedCount: decoratorResult.deletedCount + userResult.deletedCount,
-        decoratorResult,
-        userResult,
-      });
-    });
+    );
 
     // Coverage API
     app.get("/coverageAreas", async (req, res) => {
@@ -382,12 +424,17 @@ async function run() {
       res.send(result);
     });
 
-    app.post("/services", async (req, res) => {
-      const service = req.body;
-      service.createdAt = new Date();
-      const result = await servicesCollection.insertOne(service);
-      res.send(result);
-    });
+    app.post(
+      "/services",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const service = req.body;
+        service.createdAt = new Date();
+        const result = await servicesCollection.insertOne(service);
+        res.send(result);
+      }
+    );
 
     // Packages API
     app.get("/packages", async (req, res) => {
@@ -412,11 +459,19 @@ async function run() {
     });
 
     app.get("/bookings", verifyFirebaseToken, async (req, res) => {
-      const query = {};
       const { email, status, decoratorEmail } = req.query;
-      // console.log(decoratorEmail);
+      const decodedEmail = req.decoded_email;
+      const query = {};
 
       if (email) {
+        if (email !== decodedEmail) {
+          const user = await usersCollection.findOne({ email: decodedEmail });
+          if (user?.role !== "admin") {
+            return res
+              .status(403)
+              .send({ message: "Forbidden: You cannot view others' bookings" });
+          }
+        }
         query.userEmail = email;
       }
       if (decoratorEmail) {
@@ -442,13 +497,24 @@ async function run() {
 
     app.patch("/bookings/:id", verifyFirebaseToken, async (req, res) => {
       const id = req.params.id;
+      const decodedEmail = req.decoded_email;
+
+      // 1. Find the booking first to see who owns it
+      const booking = await bookingsCollection.findOne({
+        _id: new ObjectId(id),
+      });
+
+      // 2. Security Check: Only the owner or an admin can edit
+      if (booking.userEmail !== decodedEmail) {
+        const user = await usersCollection.findOne({ email: decodedEmail });
+        if (user?.role !== "admin") {
+          return res
+            .status(403)
+            .send({ message: "You don't have permission to edit this" });
+        }
+      }
       const updatedInfo = req.body;
-      const updateDoc = {
-        $set: {
-          ...updatedInfo,
-          updatedAt: new Date(),
-        },
-      };
+      const updateDoc = { $set: { ...updatedInfo, updatedAt: new Date() } };
       const result = await bookingsCollection.updateOne(
         { _id: new ObjectId(id) },
         updateDoc
@@ -457,15 +523,20 @@ async function run() {
     });
 
     // 1. Admin assigns (Initial Request)
-    app.patch("/bookings/assign/:id", async (req, res) => {
-      const id = req.params.id;
-      const { decoratorEmail, status, assignRequestAt } = req.body;
-      const result = await bookingsCollection.updateOne(
-        { _id: new ObjectId(id) },
-        { $set: { decoratorEmail, status, assignedAt: assignRequestAt } }
-      );
-      res.send(result);
-    });
+    app.patch(
+      "/bookings/assign/:id",
+      verifyFirebaseToken,
+      verifyAdmin,
+      async (req, res) => {
+        const id = req.params.id;
+        const { decoratorEmail, status, assignRequestAt } = req.body;
+        const result = await bookingsCollection.updateOne(
+          { _id: new ObjectId(id) },
+          { $set: { decoratorEmail, status, assignedAt: assignRequestAt } }
+        );
+        res.send(result);
+      }
+    );
 
     // 2. Decorator Accepts (Stamping data)
     app.patch("/bookings/:id/accept", verifyDecorator, async (req, res) => {
@@ -576,78 +647,84 @@ async function run() {
       res.send({ url: session.url });
     });
 
-    app.patch("/verify-payment-success", async (req, res) => {
-      try {
-        const sessionId = req.query.session_id;
+    app.patch(
+      "/verify-payment-success",
+      verifyFirebaseToken,
+      async (req, res) => {
+        try {
+          const sessionId = req.query.session_id;
 
-        if (!sessionId) {
-          return res
-            .status(400)
-            .send({ success: false, message: "Session ID is required" });
+          if (!sessionId) {
+            return res
+              .status(400)
+              .send({ success: false, message: "Session ID is required" });
+          }
+
+          const session = await stripe.checkout.sessions.retrieve(sessionId);
+          //  console.log(session);
+
+          const transactionId = session.payment_intent;
+          const query = { transactionId: transactionId };
+          const paymentExist = await paymentsCollection.findOne(query);
+          if (paymentExist) {
+            return res.send({
+              success: true,
+              message: "already exists",
+              transactionId: paymentExist.transactionId,
+              trackingId: paymentExist.trackingId,
+            });
+          }
+
+          if (session.payment_status === "paid") {
+            const id = session.metadata.parcelId;
+            const trackingId = generateTrackingId(); // Generate tracking ID here
+            const query = { _id: new ObjectId(id) };
+            const update = {
+              $set: {
+                status: "paymentDone",
+                paymentStatus: "Paid",
+                trackingId: trackingId, // Use the generated trackingId
+              },
+            };
+            const result = await bookingsCollection.updateOne(query, update);
+
+            const paymentInfo = {
+              amount: session.amount_total / 100,
+              currency: session.currency,
+              customerEmail: session.customer_email,
+              bookingId: session.metadata.parcelId,
+              packageName: session.metadata.parcelName,
+              transactionId: session.payment_intent,
+              paymentStatus: session.payment_status,
+              trackingId: trackingId, // Add tracking ID to payment record
+              paidAt: new Date(),
+            };
+
+            const resultPayment = await paymentsCollection.insertOne(
+              paymentInfo
+            );
+
+            // Send response
+            return res.send({
+              success: true,
+              modifyBooking: result,
+              trackingId: trackingId,
+              transactionId: session.payment_intent,
+              paymentInfo: resultPayment,
+            });
+          } else {
+            return res.send({
+              success: false,
+              message: "Payment not completed",
+              paymentStatus: session.payment_status,
+            });
+          }
+        } catch (error) {
+          // console.error("Payment verification error:", error);
+          res.status(500).send({ success: false, error: error.message });
         }
-
-        const session = await stripe.checkout.sessions.retrieve(sessionId);
-        //  console.log(session);
-
-        const transactionId = session.payment_intent;
-        const query = { transactionId: transactionId };
-        const paymentExist = await paymentsCollection.findOne(query);
-        if (paymentExist) {
-          return res.send({
-            success: true,
-            message: "already exists",
-            transactionId: paymentExist.transactionId,
-            trackingId: paymentExist.trackingId,
-          });
-        }
-
-        if (session.payment_status === "paid") {
-          const id = session.metadata.parcelId;
-          const trackingId = generateTrackingId(); // Generate tracking ID here
-          const query = { _id: new ObjectId(id) };
-          const update = {
-            $set: {
-              status: "paymentDone",
-              paymentStatus: "Paid",
-              trackingId: trackingId, // Use the generated trackingId
-            },
-          };
-          const result = await bookingsCollection.updateOne(query, update);
-
-          const paymentInfo = {
-            amount: session.amount_total / 100,
-            currency: session.currency,
-            customerEmail: session.customer_email,
-            bookingId: session.metadata.parcelId,
-            packageName: session.metadata.parcelName,
-            transactionId: session.payment_intent,
-            paymentStatus: session.payment_status,
-            trackingId: trackingId, // Add tracking ID to payment record
-            paidAt: new Date(),
-          };
-
-          const resultPayment = await paymentsCollection.insertOne(paymentInfo);
-
-          // Send response
-          return res.send({
-            success: true,
-            modifyBooking: result,
-            trackingId: trackingId,
-            transactionId: session.payment_intent,
-            paymentInfo: resultPayment,
-          });
-        } else {
-          return res.send({
-            success: false,
-            message: "Payment not completed",
-            paymentStatus: session.payment_status,
-          });
-        }
-      } catch (error) {
-        // console.error("Payment verification error:", error);
-        res.status(500).send({ success: false, error: error.message });
       }
-    });
+    );
 
     // Payments history API
     app.get("/payments", verifyFirebaseToken, async (req, res) => {
