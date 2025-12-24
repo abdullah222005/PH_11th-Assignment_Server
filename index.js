@@ -34,7 +34,7 @@ const verifyFirebaseToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
   if (!authHeader || !authHeader.startsWith("Bearer ")) {
-    console.log("No token provided in header");
+    // console.log("No token provided in header");
     return res.status(401).send({ message: "Un-Authorized Access: No Token" });
   }
 
@@ -47,7 +47,7 @@ const verifyFirebaseToken = async (req, res, next) => {
 
     next();
   } catch (error) {
-    console.error("Firebase Token Verification Error:", error.message);
+    // console.error("Firebase Token Verification Error:", error.message);
     return res
       .status(401)
       .send({ message: "Un-Authorized Access: Invalid Token" });
@@ -207,7 +207,7 @@ async function run() {
         .sort({ experience: -1 })
         .limit(3)
         .toArray();
-      console.log(result);
+      // console.log(result);
 
       res.send(result);
     });
@@ -229,7 +229,7 @@ async function run() {
     // Make Decorator Admin
     app.patch("/decorators/admin/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
-      console.log(id);
+      // console.log(id);
 
       // Get decorator email first
       const decorator = await decoratorsCollection.findOne({
@@ -414,7 +414,7 @@ async function run() {
     app.get("/bookings", verifyFirebaseToken, async (req, res) => {
       const query = {};
       const { email, status, decoratorEmail } = req.query;
-      console.log(decoratorEmail);
+      // console.log(decoratorEmail);
 
       if (email) {
         query.userEmail = email;
@@ -517,7 +517,7 @@ async function run() {
           const result = await bookingsCollection.updateOne(query, updateDoc);
           res.send(result);
         } catch (error) {
-          console.error("Error updating status:", error);
+          // console.error("Error updating status:", error);
           res.status(500).send({ message: "Internal Server Error" });
         }
       }
@@ -543,10 +543,10 @@ async function run() {
     // Payments API
     app.post("/StyleDecor-checkout-session", async (req, res) => {
       const paymentInfo = req.body;
-      console.log(paymentInfo);
+      // console.log(paymentInfo);
 
       const amount = Math.round(Number(paymentInfo.price) * 100);
-      console.log(amount);
+      // console.log(amount);
 
       if (isNaN(amount)) {
         return res.status(400).send({ message: "Invalid price amount" });
@@ -644,7 +644,7 @@ async function run() {
           });
         }
       } catch (error) {
-        console.error("Payment verification error:", error);
+        // console.error("Payment verification error:", error);
         res.status(500).send({ success: false, error: error.message });
       }
     });
@@ -724,7 +724,7 @@ async function run() {
           const decorator = await decoratorsCollection.findOne({ email });
           role = decorator?.role;
         }
-        console.log(`Final identified role for ${email}:`, role);
+        // console.log(`Final identified role for ${email}:`, role);
 
         // Admin
         if (role === "admin") {
@@ -798,7 +798,7 @@ async function run() {
           });
         }
       } catch (error) {
-        console.error(error);
+        // console.error(error);
         res.status(500).send("Stats error");
       }
     });
@@ -818,7 +818,7 @@ app.get("/", (req, res) => {
 });
 
 app.listen(port, () => {
-  console.log(`Server is running on port: ${port}`);
+  // console.log(`Server is running on port: ${port}`);
 });
 
 module.exports = app;
