@@ -29,6 +29,7 @@ const port = process.env.PORT || 3333;
 app.use(express.json());
 app.use(cors());
 
+// --- Firebase Middleware ---
 const verifyFirebaseToken = async (req, res, next) => {
   const authHeader = req.headers.authorization;
 
@@ -51,6 +52,39 @@ const verifyFirebaseToken = async (req, res, next) => {
       .status(401)
       .send({ message: "Un-Authorized Access: Invalid Token" });
   }
+};
+
+// --- ADMIN ONLY MIDDLEWARE ---
+const verifyAdmin = async (req, res, next) => {
+  const email = req.decoded_email;
+  const query = { email: email };
+  const user = await usersCollection.findOne(query);
+  const isAdmin = user?.role === "admin";
+
+  if (!isAdmin) {
+    return res.status(403).send({ message: "Forbidden Access: Admins Only" });
+  }
+  next();
+};
+
+// --- DECORATOR ONLY MIDDLEWARE ---
+const verifyDecorator = async (req, res, next) => {
+  const email = req.decoded_email;
+  // We check both because a decorator might be in either based on your setup
+  const user = await usersCollection.findOne({ email: email });
+  const decorator = await decoratorsCollection.findOne({ email: email });
+
+  const isDecorator =
+    user?.role === "decorator" ||
+    decorator?.role === "decorator" ||
+    user?.role === "admin";
+
+  if (!isDecorator) {
+    return res
+      .status(403)
+      .send({ message: "Forbidden Access: Decorators Only" });
+  }
+  next();
 };
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gh1jtid.mongodb.net/?appName=Cluster0`;
@@ -96,7 +130,7 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/users", async (req, res) => {
+    app.get("/users", verifyFirebaseToken, verifyAdmin, async (req, res) => {
       const cursor = usersCollection.find();
       const result = await cursor.toArray();
       res.send(result);
@@ -113,7 +147,7 @@ async function run() {
     });
 
     // 1. Make Admin
-    app.patch("/users/admin/:id", async (req, res) => {
+    app.patch("/users/admin/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updateDoc = { $set: { role: "admin" } };
@@ -122,7 +156,7 @@ async function run() {
     });
 
     // 2. Make Decorator
-    app.patch("/users/decorator/:id", async (req, res) => {
+    app.patch("/users/decorator/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updateDoc = { $set: { role: "decorator" } };
@@ -131,7 +165,7 @@ async function run() {
     });
 
     // 3. Ban User (Toggle Status)
-    app.patch("/users/ban/:id", async (req, res) => {
+    app.patch("/users/ban/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const filter = { _id: new ObjectId(id) };
       const updateDoc = { $set: { status: "banned" } };
@@ -140,7 +174,7 @@ async function run() {
     });
 
     // 4. Remove User
-    app.delete("/users/:id", async (req, res) => {
+    app.delete("/users/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await usersCollection.deleteOne(query);
@@ -193,7 +227,7 @@ async function run() {
     });
 
     // Make Decorator Admin
-    app.patch("/decorators/admin/:id", async (req, res) => {
+    app.patch("/decorators/admin/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
       console.log(id);
 
@@ -226,7 +260,7 @@ async function run() {
       });
     });
     // Approve or Reject Decorator
-    app.patch("/decorators/status/:id", async (req, res) => {
+    app.patch("/decorators/status/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
       const { applicationStatus, email } = req.body;
 
@@ -266,7 +300,7 @@ async function run() {
     });
 
     // Ban Decorator
-    app.patch("/decorators/ban/:id", async (req, res) => {
+    app.patch("/decorators/ban/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
 
       // Get decorator email first
@@ -299,7 +333,7 @@ async function run() {
     });
 
     // Delete Decorator
-    app.delete("/decorators/:id", async (req, res) => {
+    app.delete("/decorators/:id", verifyAdmin, async (req, res) => {
       const id = req.params.id;
 
       // Get decorator email first
@@ -370,14 +404,14 @@ async function run() {
     });
 
     // Booking API
-    app.post("/bookings", async (req, res) => {
+    app.post("/bookings", verifyFirebaseToken, async (req, res) => {
       const booking = req.body;
       booking.createdAt = new Date();
       const result = await bookingsCollection.insertOne(booking);
       res.send(result);
     });
 
-    app.get("/bookings", async (req, res) => {
+    app.get("/bookings", verifyFirebaseToken, async (req, res) => {
       const query = {};
       const { email, status, decoratorEmail } = req.query;
       console.log(decoratorEmail);
@@ -399,28 +433,28 @@ async function run() {
       res.send(result);
     });
 
-    app.get("/bookings/:id", async (req, res) => {
+    app.get("/bookings/:id", verifyFirebaseToken, async (req, res) => {
       const id = req.params.id;
       const query = { _id: new ObjectId(id) };
       const result = await bookingsCollection.findOne(query);
       res.send(result);
     });
 
-app.patch("/bookings/:id", async (req, res) => {
-  const id = req.params.id;
-  const updatedInfo = req.body;
-  const updateDoc = {
-    $set: {
-      ...updatedInfo,
-      updatedAt: new Date(),
-    },
-  };
-    const result = await bookingsCollection.updateOne(
-      { _id: new ObjectId(id) },
-      updateDoc
-    );
-    res.send(result);
-});
+    app.patch("/bookings/:id", verifyFirebaseToken, async (req, res) => {
+      const id = req.params.id;
+      const updatedInfo = req.body;
+      const updateDoc = {
+        $set: {
+          ...updatedInfo,
+          updatedAt: new Date(),
+        },
+      };
+      const result = await bookingsCollection.updateOne(
+        { _id: new ObjectId(id) },
+        updateDoc
+      );
+      res.send(result);
+    });
 
     // 1. Admin assigns (Initial Request)
     app.patch("/bookings/assign/:id", async (req, res) => {
@@ -434,7 +468,7 @@ app.patch("/bookings/:id", async (req, res) => {
     });
 
     // 2. Decorator Accepts (Stamping data)
-    app.patch("/bookings/:id/accept", async (req, res) => {
+    app.patch("/bookings/:id/accept", verifyDecorator, async (req, res) => {
       const id = req.params.id;
       const info = req.body; // Full decorator data from frontend
       const result = await bookingsCollection.updateOne(
@@ -452,7 +486,7 @@ app.patch("/bookings/:id", async (req, res) => {
     });
 
     // 3. Decorator Rejects (Cleanup)
-    app.patch("/bookings/:id/reject", async (req, res) => {
+    app.patch("/bookings/:id/reject", verifyDecorator, async (req, res) => {
       const id = req.params.id;
       const result = await bookingsCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -465,37 +499,46 @@ app.patch("/bookings/:id", async (req, res) => {
     });
 
     // Update booking workflow status
-    app.patch("/bookings/:id/status", async (req, res) => {
-      const id = req.params.id;
-      const { status } = req.body;
-      const query = { _id: new ObjectId(id) };
-      const updateDoc = {
-        $set: {
-          status: status,
-          updatedAt: new Date(),
-        },
-      };
-      try {
-        const result = await bookingsCollection.updateOne(query, updateDoc);
-        res.send(result);
-      } catch (error) {
-        console.error("Error updating status:", error);
-        res.status(500).send({ message: "Internal Server Error" });
+    app.patch(
+      "/bookings/:id/status",
+      verifyFirebaseToken,
+      verifyDecorator,
+      async (req, res) => {
+        const id = req.params.id;
+        const { status } = req.body;
+        const query = { _id: new ObjectId(id) };
+        const updateDoc = {
+          $set: {
+            status: status,
+            updatedAt: new Date(),
+          },
+        };
+        try {
+          const result = await bookingsCollection.updateOne(query, updateDoc);
+          res.send(result);
+        } catch (error) {
+          console.error("Error updating status:", error);
+          res.status(500).send({ message: "Internal Server Error" });
+        }
       }
-    });
+    );
 
     // Update decorator availability status
-    app.patch("/decorators/status-update-by-email/:email", async (req, res) => {
-      const email = req.params.email;
-      const { status } = req.body;
+    app.patch(
+      "/decorators/status-update-by-email/:email",
+      verifyDecorator,
+      async (req, res) => {
+        const email = req.params.email;
+        const { status } = req.body;
 
-      const filter = { email: email };
-      const updateDoc = {
-        $set: { status: status },
-      };
+        const filter = { email: email };
+        const updateDoc = {
+          $set: { status: status },
+        };
         const result = await decoratorsCollection.updateOne(filter, updateDoc);
         res.send(result);
-    });
+      }
+    );
 
     // Payments API
     app.post("/StyleDecor-checkout-session", async (req, res) => {
@@ -623,7 +666,7 @@ app.patch("/bookings/:id", async (req, res) => {
     });
 
     // Revenue monitor API
-    app.get("/revenue-stats", async (req, res) => {
+    app.get("/revenue-stats", verifyAdmin, async (req, res) => {
       try {
         // 1. Revenue History (Area Chart)
         const revenueHistory = await paymentsCollection
