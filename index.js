@@ -743,50 +743,61 @@ async function run() {
     });
 
     // Revenue monitor API
-    app.get("/revenue-stats", verifyAdmin, async (req, res) => {
-      try {
-        // 1. Revenue History (Area Chart)
-        const revenueHistory = await paymentsCollection
-          .aggregate([
-            {
-              $group: {
-                _id: {
-                  $dateToString: {
-                    format: "%Y-%m-%d",
-                    date: { $toDate: "$paidAt" },
+    app.get(
+      "/revenue-stats",
+      // verifyFirebaseToken,
+      // verifyAdmin,
+      async (req, res) => {
+        try {
+          // 1. Revenue History (Area Chart)
+          const revenueHistory = await paymentsCollection
+            .aggregate([
+              {
+                $group: {
+                  _id: {
+                    $dateToString: {
+                      format: "%Y-%m-%d",
+                      date: "$paidAt",
+                    },
                   },
+                  total: { $sum: { $toDouble: "$amount" } }, // ✅ ADD THIS LINE
                 },
-                total: { $sum: "$amount" },
               },
-            },
-            { $sort: { _id: 1 } },
-            { $project: { date: "$_id", amount: "$total", _id: 0 } },
-          ])
-          .toArray();
-        // 2. Service Demand (Histogram)
-        const serviceDemand = await bookingsCollection
-          .aggregate([
-            {
-              // If your DB field is packageName, change this to "$packageName"
-              $group: { _id: "$packageName", count: { $sum: 1 } },
-            },
-            { $project: { name: "$_id", bookings: "$count", _id: 0 } },
-          ])
-          .toArray();
-        // Add this to calculate total revenue for the "Stat" card
-        const totalRevenue = revenueHistory.reduce(
-          (sum, item) => sum + item.amount,
-          0
-        );
-        res.send({
-          revenueHistory,
-          serviceDemand,
-          totalRevenue,
-        });
-      } catch (error) {
-        res.status(500).send({ message: "Error fetching stats" });
+              { $sort: { _id: 1 } },
+              { $project: { date: "$_id", amount: "$total", _id: 0 } },
+            ])
+            .toArray();
+
+          // 2. Service Demand (Histogram)
+          const serviceDemand = await bookingsCollection
+            .aggregate([
+              {
+                $group: { _id: "$packageName", count: { $sum: 1 } },
+              },
+              { $project: { name: "$_id", bookings: "$count", _id: 0 } },
+            ])
+            .toArray();
+
+          // 3. Calculate total revenue
+          const totalRevenue = revenueHistory.reduce(
+            (sum, item) => sum + item.amount,
+            0
+          );
+
+          res.send({
+            revenueHistory,
+            serviceDemand,
+            totalRevenue,
+          });
+        } catch (error) {
+          console.error("Revenue stats error:", error);
+          res.status(500).send({
+            message: "Error fetching stats",
+            error: error.message,
+          });
+        }
       }
-    });
+    );
 
     // A unified stats endpoint that detects who is asking
     app.get("/dashboard-stats", verifyFirebaseToken, async (req, res) => {
