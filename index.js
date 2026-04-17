@@ -54,38 +54,38 @@ const verifyFirebaseToken = async (req, res, next) => {
   }
 };
 
-// --- ADMIN ONLY MIDDLEWARE ---
-const verifyAdmin = async (req, res, next) => {
-  const email = req.decoded_email;
-  const query = { email: email };
-  const user = await usersCollection.findOne(query);
-  const isAdmin = user?.role === "admin";
+// // --- ADMIN ONLY MIDDLEWARE ---
+// const verifyAdmin = async (req, res, next) => {
+//   const email = req.decoded_email;
+//   const query = { email: email };
+//   const user = await usersCollection.findOne(query);
+//   const isAdmin = user?.role === "admin";
 
-  if (!isAdmin) {
-    return res.status(403).send({ message: "Forbidden Access: Admins Only" });
-  }
-  next();
-};
+//   if (!isAdmin) {
+//     return res.status(403).send({ message: "Forbidden Access: Admins Only" });
+//   }
+//   next();
+// };
 
-// --- DECORATOR ONLY MIDDLEWARE ---
-const verifyDecorator = async (req, res, next) => {
-  const email = req.decoded_email;
-  // We check both because a decorator might be in either based on your setup
-  const user = await usersCollection.findOne({ email: email });
-  const decorator = await decoratorsCollection.findOne({ email: email });
+// // --- DECORATOR ONLY MIDDLEWARE ---
+// const verifyDecorator = async (req, res, next) => {
+//   const email = req.decoded_email;
+//   // We check both because a decorator might be in either based on your setup
+//   const user = await usersCollection.findOne({ email: email });
+//   const decorator = await decoratorsCollection.findOne({ email: email });
 
-  const isDecorator =
-    user?.role === "decorator" ||
-    decorator?.role === "decorator" ||
-    user?.role === "admin";
+//   const isDecorator =
+//     user?.role === "decorator" ||
+//     decorator?.role === "decorator" ||
+//     user?.role === "admin";
 
-  if (!isDecorator) {
-    return res
-      .status(403)
-      .send({ message: "Forbidden Access: Decorators Only" });
-  }
-  next();
-};
+//   if (!isDecorator) {
+//     return res
+//       .status(403)
+//       .send({ message: "Forbidden Access: Decorators Only" });
+//   }
+//   next();
+// };
 
 const uri = `mongodb+srv://${process.env.DB_USER}:${process.env.DB_PASS}@cluster0.gh1jtid.mongodb.net/?appName=Cluster0`;
 
@@ -100,7 +100,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    // await client.connect();
+    await client.connect();
     const db = client.db("Style-Decor_DB");
     const usersCollection = db.collection("users");
     const decoratorsCollection = db.collection("decorators");
@@ -114,6 +114,39 @@ async function run() {
     //   { transactionId: 1 },
     //   { unique: true }
     // );
+
+    const verifyAdmin = async (req, res, next) => {
+      const email = req.decoded_email;
+      const user = await usersCollection.findOne({ email });
+
+      if (!user || user.role !== "admin") {
+        return res
+          .status(403)
+          .send({ message: "Forbidden Access: Admins Only" });
+      }
+
+      next();
+    };
+
+    const verifyDecorator = async (req, res, next) => {
+      const email = req.decoded_email;
+      const user = await usersCollection.findOne({ email });
+      const decorator = await decoratorsCollection.findOne({ email });
+
+      const isDecorator =
+        user?.role === "decorator" ||
+        decorator?.role === "decorator" ||
+        user?.role === "admin";
+
+      if (!isDecorator) {
+        return res
+          .status(403)
+          .send({ message: "Forbidden Access: Decorators Only" });
+      }
+
+      next();
+    };
+
 
     // Auth API:
     app.post("/users", async (req, res) => {
@@ -131,9 +164,14 @@ async function run() {
     });
 
     app.get("/users", verifyFirebaseToken, verifyAdmin, async (req, res) => {
-      const cursor = usersCollection.find();
-      const result = await cursor.toArray();
-      res.send(result);
+      try {
+        const cursor = usersCollection.find();
+        const result = await cursor.toArray();
+        res.send(result);
+      } catch (error) {
+        console.error("Users API error:", error);
+        res.status(500).send({ error: error.message });
+      }
     });
 
     app.get("/users/role", verifyFirebaseToken, async (req, res) => {
