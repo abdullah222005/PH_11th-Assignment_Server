@@ -100,7 +100,7 @@ const client = new MongoClient(uri, {
 
 async function run() {
   try {
-    await client.connect();
+    // await client.connect();
     const db = client.db("Style-Decor_DB");
     const usersCollection = db.collection("users");
     const decoratorsCollection = db.collection("decorators");
@@ -577,7 +577,7 @@ async function run() {
     );
 
     // 2. Decorator Accepts (Stamping data)
-    app.patch("/bookings/:id/accept", verifyDecorator, async (req, res) => {
+    app.patch("/bookings/:id/accept", verifyFirebaseToken, verifyDecorator, async (req, res) => {
       const id = req.params.id;
       const info = req.body; // Full decorator data from frontend
       const result = await bookingsCollection.updateOne(
@@ -595,7 +595,7 @@ async function run() {
     });
 
     // 3. Decorator Rejects (Cleanup)
-    app.patch("/bookings/:id/reject", verifyDecorator, async (req, res) => {
+    app.patch("/bookings/:id/reject", verifyFirebaseToken, verifyDecorator, async (req, res) => {
       const id = req.params.id;
       const result = await bookingsCollection.updateOne(
         { _id: new ObjectId(id) },
@@ -635,6 +635,7 @@ async function run() {
     // Update decorator availability status
     app.patch(
       "/decorators/status-update-by-email/:email",
+      verifyFirebaseToken,
       verifyDecorator,
       async (req, res) => {
         const email = req.params.email;
